@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multimodal-ai-studio"
+description = "Prompt-to-edit planning prototype that converts supported phrases into ordered media-operation specifications."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+version = "0.1.0"
+requires-python = ">=3.12"
+
+[project.optional-dependencies]
+dev = ["pytest>=9.1.1,<10","ruff>=0.16.7,<1"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
