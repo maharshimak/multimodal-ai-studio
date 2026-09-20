@@ -1,6 +1,8 @@
 # Multimodal AI Studio
 
-[Live Interactive Demo](https://maharshimak.github.io/makma-ai-os/projects/multimodal-ai-studio/) · [AI Systems Lab](https://maharshimak.github.io/makma-ai-os/projects/)
+**A MAK'MA Studio Product · MAK'MA Labs**
+
+[Live Product Demo](https://maharshimak.github.io/makma-ai-os/projects/multimodal-ai-studio/) · [MAK'MA Labs](https://maharshimak.github.io/makma-ai-os/projects/)
 
 Prompt-to-edit planning prototype that converts supported phrases into ordered media-operation specifications.
 
