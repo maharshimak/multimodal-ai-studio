@@ -34,20 +34,25 @@ STAGE_ORDER = {
 
 
 def plan(prompt: str) -> list[EditNode]:
+    if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 5000:
+        raise ValueError("A non-empty edit request of at most 5000 characters is required.")
     lower = prompt.lower()
     nodes = [
         deepcopy(node)
         for keys, node in KEYWORDS
         if any(key in lower for key in keys)
-        and not (
-            node.operation == "background_segmentation" and "background noise" in lower
-        )
+        and not (node.operation == "background_segmentation" and "background noise" in lower)
     ]
     deduped = {node.operation: node for node in nodes}
     return sorted(deduped.values(), key=lambda n: STAGE_ORDER[n.stage])
 
 
 def validate(nodes: list[EditNode]) -> None:
+    supported = {node.operation: node.stage for _, node in KEYWORDS}
+    supported.update({"grade": "color", "captions": "overlay"})
+    for node in nodes:
+        if node.operation not in supported or node.stage != supported[node.operation]:
+            raise ValueError("Unsupported operation or incorrect stage.")
     operations = [n.operation for n in nodes]
     if len(operations) != len(set(operations)):
         raise ValueError("Duplicate operations are not allowed.")

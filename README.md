@@ -6,6 +6,28 @@
 
 Prompt-to-edit planning prototype that converts supported phrases into ordered media-operation specifications.
 
+
+## Product contract — engineering upgrade
+
+**Problem and audience:** A media workflow preflight planner for editors estimating processing work before expensive rendering.
+
+**Live tool:** https://maharshimak.github.io/makma-ai-os/projects/multimodal-ai-studio/
+
+**Implemented browser workflow:** Source/output resolution, FPS, duration, speed and budget drive ordered operation workload, output frames, utilization, warnings and an exportable fingerprinted plan. Empty plans block. Background replacement discloses asset/compositor requirements; subtitles disclose transcription requirements.
+
+**Backend and parity contract:** Python offers deterministic operation planning, stage validation and render budget enforcement. Empty plans now fail closed; unsupported operation/stage pairs are rejected. Browser workload v2 uses output resolution and retimed frame counts; the Python legacy estimate uses source frames. These estimates are different documented modes.
+
+**Architecture:** `makma-ai-os/demo` is the shared web product source and Pages deployment. This repository owns its Python domain package. The central `tests/e2e` suite exercises all nine products; `tests/fixtures/python-parity.json` plus `scripts/generate_parity.py` guard shared mathematical contracts. Backend revisions used for regeneration are pinned in the central `backend-lock.json`.
+
+**Safety and limitations:** No uploaded media processing, actual render, GPU-time/VRAM prediction, segmentation model or speech backend. Weights are explicit planning heuristics, not benchmark measurements. Inputs are validated, rendered user values are escaped, and deterministic results are not presented as model inference.
+
+**Verification:** Run `python -m ruff check .` and `python -m pytest -q`. `tests/test_engineering_upgrade.py` protects the new rejection/correctness paths. Central web checks: `npm ci`, `npm test`, `npm run build`, `npx playwright install --with-deps chromium`, `npm run test:e2e`. CI gates publishing on browser interactions and validates all public URLs after deployment.
+
+**Highest-value next work:** Measured hardware profiles, typed operation parameters, real compositor/transcription adapters and render job cancellation.
+
+**Provenance:** Independent MAK’MA Studio engineering implementation; examples are synthetic and no employer code or data is included. Existing MIT license applies.
+
+
 ## Implemented now
 
 - Keyword-based planning for retiming, color grading, audio denoising, subtitles and background segmentation.

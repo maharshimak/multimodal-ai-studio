@@ -42,9 +42,8 @@ class RenderBudget:
             or self.max_operations <= 0
         ):
             raise ValueError("max_operations must be a positive integer")
-        if (
-            isinstance(self.max_megapixel_frames, bool)
-            or not isinstance(self.max_megapixel_frames, (int, float))
+        if isinstance(self.max_megapixel_frames, bool) or not isinstance(
+            self.max_megapixel_frames, (int, float)
         ):
             raise TypeError("max_megapixel_frames must be a number")
         if not isfinite(float(self.max_megapixel_frames)) or self.max_megapixel_frames <= 0:
@@ -89,12 +88,12 @@ def enforce_render_budget(
     media: MediaProfile,
     budget: RenderBudget,
 ) -> RenderEstimate:
+    if not nodes:
+        raise RenderBudgetExceeded("No supported operations; nothing to render.")
     estimate = estimate_render(nodes, media)
     reasons: list[str] = []
     if estimate.operation_count > budget.max_operations:
-        reasons.append(
-            f"operations {estimate.operation_count} > maximum {budget.max_operations}"
-        )
+        reasons.append(f"operations {estimate.operation_count} > maximum {budget.max_operations}")
     if estimate.weighted_megapixel_frames > budget.max_megapixel_frames:
         reasons.append(
             "weighted megapixel-frames "
