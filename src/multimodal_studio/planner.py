@@ -49,7 +49,14 @@ def plan(prompt: str) -> list[EditNode]:
 
 def validate(nodes: list[EditNode]) -> None:
     supported = {node.operation: node.stage for _, node in KEYWORDS}
-    supported.update({"grade": "color", "captions": "overlay"})
+    supported.update({
+        "grade": "color",
+        "captions": "overlay",
+        "trim": "temporal",
+        "resize": "vision",
+        "crop": "vision",
+        "volume": "audio",
+    })
     for node in nodes:
         if node.operation not in supported or node.stage != supported[node.operation]:
             raise ValueError("Unsupported operation or incorrect stage.")
