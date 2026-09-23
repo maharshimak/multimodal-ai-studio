@@ -49,7 +49,7 @@ _VOLUME_RE = re.compile(
     re.IGNORECASE,
 )
 _SPEED_RE = re.compile(
-    r"\b(?:speed|retime)(?:\s+(?:to|at))?\s*(0\.5|0\.\d+|1(?:\.\d+)?|2(?:\.0+)?)\s*x\b",
+    r"\b(?:speed|retime)(?:\s+(?:to|at))?\s*(\d+(?:\.\d+)?)\s*x\b",
     re.IGNORECASE,
 )
 
