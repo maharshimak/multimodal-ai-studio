@@ -81,7 +81,33 @@ def build_ffmpeg_command(
     unsupported: list[str] = []
 
     for node in nodes:
-        if node.operation == "retime":
+        if node.operation == "trim":
+            start = float(node.parameters.get("start_seconds", 0.0))
+            end = float(node.parameters.get("end_seconds", 0.0))
+            if start < 0 or end <= start or end - start > 4 * 60 * 60:
+                raise ValueError("Trim requires 0 <= start < end with at most four hours.")
+            video_filters.append(f"trim=start={start:g}:end={end:g},setpts=PTS-STARTPTS")
+            audio_filters.append(f"atrim=start={start:g}:end={end:g},asetpts=PTS-STARTPTS")
+        elif node.operation == "resize":
+            width = int(node.parameters.get("width", 0))
+            height = int(node.parameters.get("height", 0))
+            if not 16 <= width <= 7680 or not 16 <= height <= 4320:
+                raise ValueError("Resize dimensions must be between 16x16 and 7680x4320.")
+            video_filters.append(f"scale={width}:{height}:flags=lanczos")
+        elif node.operation == "crop":
+            width = int(node.parameters.get("width", 0))
+            height = int(node.parameters.get("height", 0))
+            x = int(node.parameters.get("x", 0))
+            y = int(node.parameters.get("y", 0))
+            if width <= 0 or height <= 0 or x < 0 or y < 0:
+                raise ValueError("Crop requires positive dimensions and non-negative offsets.")
+            video_filters.append(f"crop={width}:{height}:{x}:{y}")
+        elif node.operation == "volume":
+            gain_db = float(node.parameters.get("gain_db", 0.0))
+            if not -60.0 <= gain_db <= 24.0:
+                raise ValueError("Volume gain must be between -60 dB and +24 dB.")
+            audio_filters.append(f"volume={gain_db:g}dB")
+        elif node.operation == "retime":
             speed = float(node.parameters.get("speed", 1.0))
             if not 0.5 <= speed <= 2.0:
                 raise ValueError("FFmpeg retime speed must be between 0.5x and 2.0x.")
