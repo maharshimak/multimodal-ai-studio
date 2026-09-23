@@ -23,6 +23,8 @@ Prompt-to-edit planning prototype that converts supported phrases into ordered m
 
 **Verification:** Run `python -m ruff check .` and `python -m pytest -q`. `tests/test_engineering_upgrade.py` protects the new rejection/correctness paths. Central web checks: `npm ci`, `npm test`, `npm run build`, `npx playwright install --with-deps chromium`, `npm run test:e2e`. CI gates publishing on browser interactions and validates all public URLs after deployment.
 
+**Executable local core:** The FFmpeg adapter now supports typed trim, crop, resize, volume, retime, cinematic grade and audio-denoise nodes with validated bounds and no shell invocation. AI-only operations such as automatic subtitles and background segmentation still fail explicitly unless a real adapter is configured.
+
 **Highest-value next work:** Measured hardware profiles, typed operation parameters, real compositor/transcription adapters and render job cancellation.
 
 **Provenance:** Independent MAK’MA Studio engineering implementation; examples are synthetic and no employer code or data is included. Existing MIT license applies.
