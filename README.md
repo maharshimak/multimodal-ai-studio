@@ -32,7 +32,7 @@ Prompt-to-edit planning prototype that converts supported phrases into ordered m
 
 ## Implemented now
 
-- Keyword-based planning for retiming, color grading, audio denoising, subtitles and background segmentation.
+- Prompt planning for retiming, color grading, audio denoising, subtitles and background segmentation, plus typed parsing for explicit trim ranges, resize/crop dimensions, volume gain and playback speed.
 - Ordered operation stages and duplicate-operation validation.
 - Independent mutable parameters for each plan and JSON export.
 - Real `ffprobe` metadata inspection for local media files.
