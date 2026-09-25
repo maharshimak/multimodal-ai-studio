@@ -4,7 +4,7 @@
 
 [Live Product Demo](https://maharshimak.github.io/makma-ai-os/projects/multimodal-ai-studio/) · [MAK'MA Labs](https://maharshimak.github.io/makma-ai-os/projects/)
 
-Prompt-to-edit planning prototype that converts supported phrases into ordered media-operation specifications.
+Media automation and AI inference toolkit combining validated prompt-to-edit planning, shell-free FFmpeg execution and optional real local transcription/image-generation backends.
 
 
 ## Product contract — engineering upgrade
@@ -19,7 +19,7 @@ Prompt-to-edit planning prototype that converts supported phrases into ordered m
 
 **Architecture:** `makma-ai-os/demo` is the shared web product source and Pages deployment. This repository owns its Python domain package. The central `tests/e2e` suite exercises all nine products; `tests/fixtures/python-parity.json` plus `scripts/generate_parity.py` guard shared mathematical contracts. Backend revisions used for regeneration are pinned in the central `backend-lock.json`.
 
-**Safety and limitations:** The Python package now has a real shell-free FFmpeg executor for supported retiming, cinematic color-grade and audio-denoise operations plus ffprobe metadata inspection. Background segmentation, automatic subtitles/transcription, generative media, browser uploads, GPU-time/VRAM prediction and asynchronous render jobs are not implemented. Workload weights remain planning heuristics, not benchmark measurements. Inputs are validated, rendered user values are escaped, and deterministic results are not presented as model inference.
+**Safety and limitations:** The Python package has a real shell-free FFmpeg executor plus optional `faster-whisper` transcription and Hugging Face Diffusers image generation adapters. These AI backends are lazy and unavailable unless their explicit extras and model weights are installed; the public browser page remains a deterministic preflight planner and does not pretend to run those models. Background segmentation/compositing, video generation, browser uploads, GPU-time/VRAM prediction and asynchronous render jobs remain future work. Workload weights are planning heuristics, not measured GPU benchmarks.
 
 **Verification:** Run `python -m ruff check .` and `python -m pytest -q`. `tests/test_engineering_upgrade.py` protects the new rejection/correctness paths. Central web checks: `npm ci`, `npm test`, `npm run build`, `npx playwright install --with-deps chromium`, `npm run test:e2e`. CI gates publishing on browser interactions and validates all public URLs after deployment.
 
@@ -38,10 +38,13 @@ Prompt-to-edit planning prototype that converts supported phrases into ordered m
 - Real `ffprobe` metadata inspection for local media files.
 - Shell-free FFmpeg command construction and execution for supported retime, cinematic color-grade and audio-denoise operations.
 - Explicit failure when an operation has no configured real executor instead of pretending a render succeeded.
+- Optional `WhisperTranscriber` powered by `faster-whisper`, producing timestamped transcript segments and SRT artifacts.
+- Optional `DiffusersImageGenerator` for local Hugging Face diffusion pipelines; models are loaded only when explicitly invoked.
+- Capability detection reports whether optional AI runtimes are actually installed.
 
 ## Scope and limitations
 
-The planner is still keyword-based, so negation and complex mixed intents are not fully understood. The Python executor can inspect local media and perform a bounded subset of real FFmpeg edits, but it does not yet provide browser uploads, timeline composition, segmentation models, transcription/subtitle generation, generative image/video execution, background jobs or cancellation. Unsupported operations fail explicitly rather than being simulated. No standalone API or UI is included in this satellite repository; the public browser experience is owned by `makma-ai-os`.
+The deterministic planner is still keyword-based, so negation and complex mixed intents are not fully understood. The Python executor can inspect local media and perform a bounded subset of real FFmpeg edits. Optional transcription and image generation are available through separate installed backends, but browser uploads, timeline composition, segmentation/compositing, generative video, background jobs and cancellation are not yet implemented. Unsupported operations fail explicitly rather than being simulated. No standalone API or UI is included in this satellite repository; the public browser experience is owned by `makma-ai-os`.
 
 ## Installation and development
 
