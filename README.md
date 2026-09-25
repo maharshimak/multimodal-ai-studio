@@ -38,6 +38,9 @@ Media automation and AI inference toolkit combining validated prompt-to-edit pla
 - Real `ffprobe` metadata inspection for local media files.
 - Shell-free FFmpeg command construction and execution for supported retime, cinematic color-grade and audio-denoise operations.
 - Explicit failure when an operation has no configured real executor instead of pretending a render succeeded.
+- Optional `WhisperTranscriber` with timestamped transcript segments and SRT rendering (`.[transcription]`).
+- Optional `DiffusersImageGenerator` for local Hugging Face diffusion pipelines (`.[generation]`).
+- Runtime capability detection reports whether optional AI backends are actually installed.
 - Optional `WhisperTranscriber` powered by `faster-whisper`, producing timestamped transcript segments and SRT artifacts.
 - Optional `DiffusersImageGenerator` for local Hugging Face diffusion pipelines; models are loaded only when explicitly invoked.
 - Capability detection reports whether optional AI runtimes are actually installed.
