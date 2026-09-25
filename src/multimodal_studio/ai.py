@@ -60,8 +60,10 @@ def segments_to_srt(segments: list[TranscriptSegment]) -> str:
             "\n".join(
                 [
                     str(index),
-                    f"{_srt_timestamp(segment.start_seconds)} --> "
-                    f"{_srt_timestamp(segment.end_seconds)}",
+                    (
+                        f"{_srt_timestamp(segment.start_seconds)} --> "
+                        f"{_srt_timestamp(segment.end_seconds)}"
+                    ),
                     segment.text.strip(),
                 ]
             )
