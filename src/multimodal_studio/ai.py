@@ -137,12 +137,20 @@ class DiffusersImageGenerator:
         *,
         device: str = "cpu",
         torch_dtype: Any | None = None,
+        revision: str | None = None,
     ) -> None:
         if not model_id.strip():
             raise ValueError("model_id is required")
+        model_path = Path(model_id).expanduser()
+        if not model_path.exists() and not (revision or "").strip():
+            raise ValueError(
+                "Remote diffusion models require a pinned revision to prevent "
+                "mutable model supply-chain drift."
+            )
         self.model_id = model_id
         self.device = device
         self.torch_dtype = torch_dtype
+        self.revision = revision
         self._pipeline: Any | None = None
 
     def _load(self):
@@ -157,6 +165,8 @@ class DiffusersImageGenerator:
         kwargs: dict[str, Any] = {}
         if self.torch_dtype is not None:
             kwargs["torch_dtype"] = self.torch_dtype
+        if self.revision is not None:
+            kwargs["revision"] = self.revision
         pipeline = DiffusionPipeline.from_pretrained(self.model_id, **kwargs)
         self._pipeline = pipeline.to(self.device)
         return self._pipeline
