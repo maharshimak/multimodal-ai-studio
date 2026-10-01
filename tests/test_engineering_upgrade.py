@@ -16,3 +16,11 @@ def test_empty_and_unknown_operations_fail_closed():
         validate([EditNode("magic", {}, "vision")])
     with pytest.raises(ValueError):
         plan("  ")
+
+
+
+def test_remote_diffusion_models_require_pinned_revision():
+    from multimodal_studio.ai import DiffusersImageGenerator
+
+    with pytest.raises(ValueError, match="pinned revision"):
+        DiffusersImageGenerator("example-org/example-model")
