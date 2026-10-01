@@ -29,10 +29,19 @@ def _require_binary(name: str) -> str:
     return resolved
 
 
-def probe_media(path: str | Path, *, ffprobe_binary: str = "ffprobe") -> MediaProbe:
+def probe_media(
+    path: str | Path,
+    *,
+    ffprobe_binary: str = "ffprobe",
+    max_source_bytes: int = 2_000_000_000,
+) -> MediaProbe:
     source = Path(path)
     if not source.is_file():
         raise FileNotFoundError(source)
+    if source.stat().st_size > max_source_bytes:
+        raise MediaExecutionError(
+            f"Source media exceeds the {max_source_bytes} byte processing limit."
+        )
     ffprobe = _require_binary(ffprobe_binary)
     completed = subprocess.run(
         [
@@ -145,11 +154,22 @@ def build_ffmpeg_command(
 class FFmpegExecutor:
     """Executes supported edit graphs without invoking a shell."""
 
-    def __init__(self, *, ffmpeg_binary: str = "ffmpeg", timeout_seconds: float = 1800.0) -> None:
+    def __init__(
+        self,
+        *,
+        ffmpeg_binary: str = "ffmpeg",
+        timeout_seconds: float = 1800.0,
+        max_source_bytes: int = 2_000_000_000,
+    ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
+        if isinstance(max_source_bytes, bool) or not isinstance(max_source_bytes, int):
+            raise TypeError("max_source_bytes must be an integer")
+        if max_source_bytes <= 0:
+            raise ValueError("max_source_bytes must be positive")
         self.ffmpeg_binary = ffmpeg_binary
         self.timeout_seconds = timeout_seconds
+        self.max_source_bytes = max_source_bytes
 
     def execute(
         self,
@@ -161,6 +181,10 @@ class FFmpegExecutor:
         destination_path = Path(destination)
         if not source_path.is_file():
             raise FileNotFoundError(source_path)
+        if source_path.stat().st_size > self.max_source_bytes:
+            raise MediaExecutionError(
+                f"Source media exceeds the {self.max_source_bytes} byte processing limit."
+            )
         ffmpeg = _require_binary(self.ffmpeg_binary)
         destination_path.parent.mkdir(parents=True, exist_ok=True)
         command = build_ffmpeg_command(
