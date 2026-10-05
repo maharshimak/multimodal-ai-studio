@@ -6,6 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from multimodal_studio.budget import MediaProfile, RenderBudget, enforce_render_budget
 from multimodal_studio.planner import EditNode, validate
 
 
@@ -18,6 +19,7 @@ class MediaProbe:
     duration_seconds: float | None
     width: int | None
     height: int | None
+    fps: float | None
     video_codec: str | None
     audio_codec: str | None
 
@@ -27,6 +29,24 @@ def _require_binary(name: str) -> str:
     if resolved is None:
         raise MediaExecutionError(f"{name} is not installed or is not on PATH.")
     return resolved
+
+
+def _parse_frame_rate(value: object) -> float | None:
+    if value in (None, "", "0/0"):
+        return None
+    text = str(value)
+    try:
+        if "/" in text:
+            numerator, denominator = text.split("/", 1)
+            denominator_value = float(denominator)
+            if denominator_value == 0:
+                return None
+            rate = float(numerator) / denominator_value
+        else:
+            rate = float(text)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+    return rate if rate > 0 else None
 
 
 def probe_media(
@@ -49,7 +69,7 @@ def probe_media(
             "-v",
             "error",
             "-show_entries",
-            "format=duration:stream=codec_type,codec_name,width,height",
+            "format=duration:stream=codec_type,codec_name,width,height,r_frame_rate",
             "-of",
             "json",
             str(source),
@@ -67,6 +87,7 @@ def probe_media(
         duration_seconds=float(raw_duration) if raw_duration is not None else None,
         width=int(video["width"]) if video.get("width") is not None else None,
         height=int(video["height"]) if video.get("height") is not None else None,
+        fps=_parse_frame_rate(video.get("r_frame_rate")),
         video_codec=video.get("codec_name"),
         audio_codec=audio.get("codec_name"),
     )
@@ -152,14 +173,16 @@ def build_ffmpeg_command(
 
 
 class FFmpegExecutor:
-    """Executes supported edit graphs without invoking a shell."""
+    """Executes supported edit graphs with preflight workload enforcement."""
 
     def __init__(
         self,
         *,
         ffmpeg_binary: str = "ffmpeg",
+        ffprobe_binary: str = "ffprobe",
         timeout_seconds: float = 1800.0,
         max_source_bytes: int = 2_000_000_000,
+        render_budget: RenderBudget | None = None,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
@@ -168,8 +191,37 @@ class FFmpegExecutor:
         if max_source_bytes <= 0:
             raise ValueError("max_source_bytes must be positive")
         self.ffmpeg_binary = ffmpeg_binary
+        self.ffprobe_binary = ffprobe_binary
         self.timeout_seconds = timeout_seconds
         self.max_source_bytes = max_source_bytes
+        self.render_budget = render_budget or RenderBudget()
+
+    def _preflight(self, source: Path, nodes: list[EditNode]) -> MediaProbe:
+        probe = probe_media(
+            source,
+            ffprobe_binary=self.ffprobe_binary,
+            max_source_bytes=self.max_source_bytes,
+        )
+        if (
+            probe.width is None
+            or probe.height is None
+            or probe.duration_seconds is None
+            or probe.fps is None
+        ):
+            raise MediaExecutionError(
+                "Source media is missing width, height, duration, or frame-rate metadata."
+            )
+        enforce_render_budget(
+            nodes,
+            MediaProfile(
+                width=probe.width,
+                height=probe.height,
+                duration_seconds=probe.duration_seconds,
+                fps=probe.fps,
+            ),
+            self.render_budget,
+        )
+        return probe
 
     def execute(
         self,
@@ -185,6 +237,8 @@ class FFmpegExecutor:
             raise MediaExecutionError(
                 f"Source media exceeds the {self.max_source_bytes} byte processing limit."
             )
+
+        self._preflight(source_path, nodes)
         ffmpeg = _require_binary(self.ffmpeg_binary)
         destination_path.parent.mkdir(parents=True, exist_ok=True)
         command = build_ffmpeg_command(
