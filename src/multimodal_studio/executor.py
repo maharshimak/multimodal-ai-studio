@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -241,21 +243,36 @@ class FFmpegExecutor:
         self._preflight(source_path, nodes)
         ffmpeg = _require_binary(self.ffmpeg_binary)
         destination_path.parent.mkdir(parents=True, exist_ok=True)
-        command = build_ffmpeg_command(
-            source_path,
-            destination_path,
-            nodes,
-            ffmpeg_binary=ffmpeg,
-        )
+        # Write to a private file with the same media extension and publish only
+        # after FFmpeg exits successfully. Failed jobs never expose partial output.
+        with tempfile.NamedTemporaryFile(
+            prefix=".render-", suffix=destination_path.suffix or ".mp4",
+            dir=destination_path.parent, delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
         try:
-            subprocess.run(
-                command,
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout_seconds,
+            command = build_ffmpeg_command(
+                source_path,
+                temporary_path,
+                nodes,
+                ffmpeg_binary=ffmpeg,
             )
-        except subprocess.CalledProcessError as error:
-            detail = (error.stderr or "").strip()[-1000:]
-            raise MediaExecutionError(f"FFmpeg failed: {detail}") from error
+            try:
+                subprocess.run(
+                    command,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout_seconds,
+                )
+            except subprocess.TimeoutExpired as error:
+                raise MediaExecutionError("FFmpeg render timed out.") from error
+            except subprocess.CalledProcessError as error:
+                detail = (error.stderr or "").strip()[-1000:]
+                raise MediaExecutionError(f"FFmpeg failed: {detail}") from error
+            if not temporary_path.is_file() or temporary_path.stat().st_size == 0:
+                raise MediaExecutionError("FFmpeg produced no output media.")
+            os.replace(temporary_path, destination_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
         return destination_path
