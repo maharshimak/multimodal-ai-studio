@@ -7,7 +7,6 @@ import pytest
 from multimodal_studio.executor import FFmpegExecutor, MediaExecutionError, probe_media
 from multimodal_studio.planner import EditNode
 
-
 pytestmark = pytest.mark.skipif(
     not shutil.which("ffmpeg") or not shutil.which("ffprobe"),
     reason="real FFmpeg/FFprobe binaries required",
