@@ -235,6 +235,10 @@ class FFmpegExecutor:
         destination_path = Path(destination)
         if not source_path.is_file():
             raise FileNotFoundError(source_path)
+        # Reject in-place output *before* allocating a temporary file or
+        # probing media, including relative, absolute and symlink aliases.
+        if source_path.resolve() == destination_path.resolve():
+            raise ValueError("Source and destination must be different files.")
         if source_path.stat().st_size > self.max_source_bytes:
             raise MediaExecutionError(
                 f"Source media exceeds the {self.max_source_bytes} byte processing limit."
