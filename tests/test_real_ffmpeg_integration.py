@@ -63,3 +63,34 @@ def test_real_ffmpeg_invalid_crop_keeps_previous_publish(tmp_path, tiny_video):
         )
     assert target.read_bytes() == b"preserve-existing"
     assert list(tmp_path.glob(".render-*")) == []
+
+
+def test_real_ffmpeg_handles_unicode_and_spaces_in_output_path(tmp_path, tiny_video):
+    output = tmp_path / "my output files" / "épreuve render vidéo.mp4"
+    executor = FFmpegExecutor(timeout_seconds=60)
+    result = executor.execute(
+        tiny_video, output,
+        [EditNode("resize", {"width": 48, "height": 48}, "vision")],
+    )
+    assert result == output
+    assert output.stat().st_size > 0
+    metadata = probe_media(output)
+    assert (metadata.width, metadata.height) == (48, 48)
+    assert list(output.parent.glob(".render-*")) == []
+
+
+def test_executor_rejects_same_source_and_destination_without_damage(tiny_video):
+    before = tiny_video.read_bytes()
+    executor = FFmpegExecutor(timeout_seconds=60)
+    with pytest.raises(ValueError, match="different files"):
+        executor.execute(tiny_video, tiny_video, [])
+    assert tiny_video.read_bytes() == before
+
+
+def test_executor_rejects_normalized_input_alias(tmp_path, tiny_video):
+    before = tiny_video.read_bytes()
+    alias = tmp_path / "nested" / ".." / tiny_video.name
+    executor = FFmpegExecutor(timeout_seconds=60)
+    with pytest.raises(ValueError, match="different files"):
+        executor.execute(tiny_video, alias, [])
+    assert tiny_video.read_bytes() == before
