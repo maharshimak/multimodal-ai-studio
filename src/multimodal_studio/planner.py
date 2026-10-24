@@ -2,6 +2,7 @@ import json
 import re
 from copy import deepcopy
 from dataclasses import asdict, dataclass
+from math import isfinite
 
 
 @dataclass(frozen=True)
@@ -163,6 +164,8 @@ def validate(nodes: list[EditNode]) -> None:
         if node.operation == "trim":
             start = float(node.parameters.get("start_seconds", -1))
             end = float(node.parameters.get("end_seconds", -1))
+            if not isfinite(start) or not isfinite(end):
+                raise ValueError("Trim bounds must be finite.")
             if start < 0 or end <= start:
                 raise ValueError("Trim requires 0 <= start < end.")
         elif node.operation in {"resize", "crop"}:
