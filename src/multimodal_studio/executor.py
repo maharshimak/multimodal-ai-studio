@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 
 from multimodal_studio.budget import MediaProfile, RenderBudget, enforce_render_budget
@@ -184,8 +185,8 @@ class FFmpegExecutor:
         max_source_bytes: int = 2_000_000_000,
         render_budget: RenderBudget | None = None,
     ) -> None:
-        if timeout_seconds <= 0:
-            raise ValueError("timeout_seconds must be positive")
+        if not isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be finite and positive")
         if isinstance(max_source_bytes, bool) or not isinstance(max_source_bytes, int):
             raise TypeError("max_source_bytes must be an integer")
         if max_source_bytes <= 0:
