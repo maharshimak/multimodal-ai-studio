@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from math import isfinite
 
 from multimodal_studio.planner import EditNode, validate
+from multimodal_studio.timeline import OutputProfile, project_output
 
 
 class RenderBudgetExceeded(RuntimeError):
@@ -34,8 +35,18 @@ class MediaProfile:
 class RenderBudget:
     max_operations: int = 8
     max_megapixel_frames: float = 250_000.0
+    max_output_seconds: float = 4 * 60 * 60
+    max_output_pixels: int = 7680 * 4320
 
     def __post_init__(self) -> None:
+        for name, value in (
+            ("max_output_seconds", self.max_output_seconds),
+            ("max_output_pixels", self.max_output_pixels),
+        ):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError(f"{name} must be a number")
+            if not isfinite(float(value)) or value <= 0:
+                raise ValueError(f"{name} must be finite and positive")
         if (
             isinstance(self.max_operations, bool)
             or not isinstance(self.max_operations, int)
@@ -103,3 +114,37 @@ def enforce_render_budget(
     if reasons:
         raise RenderBudgetExceeded("; ".join(reasons))
     return estimate
+
+
+def enforce_output_budget(
+    nodes: list[EditNode],
+    media: MediaProfile,
+    budget: RenderBudget,
+) -> OutputProfile:
+    """Project the plan onto the source and enforce output duration/resolution limits.
+
+    Raises :class:`multimodal_studio.timeline.MediaPlanError` when the plan cannot
+    apply to this media and :class:`RenderBudgetExceeded` when the projected output
+    exceeds the budget.
+    """
+    output = project_output(
+        nodes,
+        width=media.width,
+        height=media.height,
+        duration_seconds=media.duration_seconds,
+        fps=media.fps,
+    )
+    reasons: list[str] = []
+    if output.duration_seconds > budget.max_output_seconds:
+        reasons.append(
+            f"output duration {float(output.duration_seconds):.3f}s > maximum "
+            f"{budget.max_output_seconds:g}s"
+        )
+    if output.width * output.height > budget.max_output_pixels:
+        reasons.append(
+            f"output resolution {output.width}x{output.height} > maximum "
+            f"{budget.max_output_pixels} pixels"
+        )
+    if reasons:
+        raise RenderBudgetExceeded("; ".join(reasons))
+    return output
