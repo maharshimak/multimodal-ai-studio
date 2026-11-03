@@ -2,6 +2,12 @@ import json
 import re
 from copy import deepcopy
 from dataclasses import asdict, dataclass
+from math import isfinite
+
+
+class PlanValidationError(ValueError):
+    """Raised when an edit graph is malformed: unknown operation, wrong stage,
+    unexpected/missing parameters, wrong parameter types or out-of-range values."""
 
 
 @dataclass(frozen=True)
@@ -121,6 +127,66 @@ def _parameterized_nodes(prompt: str) -> list[EditNode]:
     return nodes
 
 
+# Canonical position of every supported operation. Stages run in STAGE_ORDER; inside a
+# stage the order is fixed so that semantics never depend on alphabetical accidents.
+# In particular ``trim`` precedes ``retime``: trim bounds always refer to the *source*
+# timeline, and crop offsets always refer to *source* pixels (crop precedes resize).
+OPERATION_ORDER: dict[str, tuple[str, int]] = {
+    "background_segmentation": ("vision", 0),
+    "crop": ("vision", 1),
+    "resize": ("vision", 2),
+    "trim": ("temporal", 0),
+    "retime": ("temporal", 1),
+    "color_grade": ("color", 0),
+    "grade": ("color", 1),
+    "audio_denoise": ("audio", 0),
+    "volume": ("audio", 1),
+    "captions": ("overlay", 0),
+    "subtitles": ("overlay", 1),
+}
+
+# Parameter schema per operation: name -> (kind, required, minimum, maximum | allowed values).
+# kind is "int" (strict integer, bools rejected), "number" (finite int/float, bools
+# rejected) or "enum" (one of the allowed strings).
+_ParamSpec = tuple[str, bool, object, object]
+PARAMETER_SCHEMA: dict[str, dict[str, _ParamSpec]] = {
+    "background_segmentation": {"mode": ("enum", False, None, ("subject",))},
+    "crop": {
+        "width": ("int", True, 16, 7680),
+        "height": ("int", True, 16, 4320),
+        "x": ("int", False, 0, 7680),
+        "y": ("int", False, 0, 4320),
+    },
+    "resize": {"width": ("int", True, 16, 7680), "height": ("int", True, 16, 4320)},
+    "trim": {
+        "start_seconds": ("number", True, 0.0, None),
+        "end_seconds": ("number", True, 0.0, None),
+    },
+    "retime": {"speed": ("number", False, 0.5, 2.0)},
+    "color_grade": {"preset": ("enum", False, None, ("cinematic-teal",))},
+    "grade": {
+        "contrast": ("number", False, 0.0, 4.0),
+        "gamma": ("number", False, 0.0, 4.0),
+        "saturation": ("number", False, 0.0, 4.0),
+    },
+    "audio_denoise": {"strength": ("number", False, 0.0, 1.0)},
+    "volume": {"gain_db": ("number", True, -60.0, 24.0)},
+    "captions": {"mode": ("enum", False, None, ("auto",))},
+    "subtitles": {"mode": ("enum", False, None, ("auto",))},
+}
+
+
+def canonical_order(nodes: list[EditNode]) -> list[EditNode]:
+    """Return nodes sorted into the canonical pipeline order (input is not mutated)."""
+    for node in nodes:
+        if node.operation not in OPERATION_ORDER:
+            raise PlanValidationError(f"Unsupported operation: {node.operation!r}.")
+    return sorted(
+        nodes,
+        key=lambda n: (STAGE_ORDER[OPERATION_ORDER[n.operation][0]], OPERATION_ORDER[n.operation][1]),
+    )
+
+
 def plan(prompt: str) -> list[EditNode]:
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 5000:
         raise ValueError("A non-empty edit request of at most 5000 characters is required.")
@@ -139,51 +205,65 @@ def plan(prompt: str) -> list[EditNode]:
     for node in nodes:
         deduped[node.operation] = node
 
-    ordered = sorted(deduped.values(), key=lambda n: (STAGE_ORDER[n.stage], n.operation))
+    ordered = canonical_order(list(deduped.values()))
     validate(ordered)
     return ordered
 
 
+def _check_parameter(operation: str, name: str, value: object, spec: _ParamSpec) -> None:
+    kind, _required, low, high = spec
+    label = f"{operation}.{name}"
+    if kind == "enum":
+        if not isinstance(value, str) or value not in high:  # type: ignore[operator]
+            raise PlanValidationError(f"{label} must be one of {list(high)}.")  # type: ignore[call-overload]
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise PlanValidationError(f"{label} must be a finite number.")
+    if not isfinite(value):
+        raise PlanValidationError(f"{label} must be a finite number.")
+    if kind == "int" and not isinstance(value, int) and not float(value).is_integer():
+        raise PlanValidationError(f"{label} must be an integer.")
+    if low is not None and value < low:  # type: ignore[operator]
+        raise PlanValidationError(f"{label} must be >= {low}.")
+    if high is not None and value > high:  # type: ignore[operator]
+        raise PlanValidationError(f"{label} must be <= {high}.")
+
+
 def validate(nodes: list[EditNode]) -> None:
-    supported = {node.operation: node.stage for _, node in KEYWORDS}
-    supported.update(
-        {
-            "grade": "color",
-            "captions": "overlay",
-            "trim": "temporal",
-            "resize": "vision",
-            "crop": "vision",
-            "volume": "audio",
-        }
-    )
+    """Validate an edit graph; raises :class:`PlanValidationError` (a ``ValueError``)."""
+    if not isinstance(nodes, list):
+        raise PlanValidationError("An edit graph must be a list of EditNode objects.")
     for node in nodes:
-        if node.operation not in supported or node.stage != supported[node.operation]:
-            raise ValueError("Unsupported operation or incorrect stage.")
+        if not isinstance(node, EditNode):
+            raise PlanValidationError("An edit graph must be a list of EditNode objects.")
+        if node.operation not in OPERATION_ORDER or node.stage != OPERATION_ORDER[node.operation][0]:
+            raise PlanValidationError("Unsupported operation or incorrect stage.")
+        if not isinstance(node.parameters, dict):
+            raise PlanValidationError(f"{node.operation} parameters must be an object.")
+        schema = PARAMETER_SCHEMA[node.operation]
+        unknown = sorted(set(node.parameters) - set(schema), key=str)
+        if unknown:
+            raise PlanValidationError(
+                f"Unknown parameters for {node.operation}: {', '.join(map(str, unknown))}."
+            )
+        for name, spec in schema.items():
+            if name not in node.parameters:
+                if spec[1]:
+                    raise PlanValidationError(f"{node.operation}.{name} is required.")
+                continue
+            _check_parameter(node.operation, name, node.parameters[name], spec)
 
         if node.operation == "trim":
-            start = float(node.parameters.get("start_seconds", -1))
-            end = float(node.parameters.get("end_seconds", -1))
-            if start < 0 or end <= start:
-                raise ValueError("Trim requires 0 <= start < end.")
-        elif node.operation in {"resize", "crop"}:
-            width = int(node.parameters.get("width", 0))
-            height = int(node.parameters.get("height", 0))
-            if not 16 <= width <= 7680 or not 16 <= height <= 4320:
-                raise ValueError("Media dimensions must be between 16x16 and 7680x4320.")
-        elif node.operation == "volume":
-            gain_db = float(node.parameters.get("gain_db", 0.0))
-            if not -60.0 <= gain_db <= 24.0:
-                raise ValueError("Volume gain must be between -60 dB and +24 dB.")
-        elif node.operation == "retime":
-            speed = float(node.parameters.get("speed", 1.0))
-            if not 0.5 <= speed <= 2.0:
-                raise ValueError("Retime speed must be between 0.5x and 2.0x.")
+            start = node.parameters["start_seconds"]
+            end = node.parameters["end_seconds"]
+            if start < 0 or end <= start:  # type: ignore[operator]
+                raise PlanValidationError("Trim requires 0 <= start < end.")
 
     operations = [n.operation for n in nodes]
     if len(operations) != len(set(operations)):
-        raise ValueError("Duplicate operations are not allowed.")
+        raise PlanValidationError("Duplicate operations are not allowed.")
 
 
 def to_json(nodes: list[EditNode]) -> str:
     validate(nodes)
-    return json.dumps([asdict(n) for n in nodes], indent=2)
+    return json.dumps([asdict(n) for n in nodes], indent=2, allow_nan=False)

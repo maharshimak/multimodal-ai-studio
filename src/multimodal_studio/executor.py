@@ -6,12 +6,34 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from multimodal_studio.budget import MediaProfile, RenderBudget, enforce_render_budget
-from multimodal_studio.planner import EditNode, validate
+from multimodal_studio.budget import (
+    MediaProfile,
+    RenderBudget,
+    enforce_output_budget,
+    enforce_render_budget,
+)
+from multimodal_studio.planner import EditNode, canonical_order, validate
+from multimodal_studio.timeline import parse_frame_rate
 
 
 class MediaExecutionError(RuntimeError):
     pass
+
+
+class FFmpegUnavailableError(MediaExecutionError):
+    """A required media binary (ffmpeg/ffprobe) is not installed or not on PATH."""
+
+    def __init__(self, binary: str) -> None:
+        super().__init__(f"{binary} is not installed or is not on PATH.")
+        self.binary = binary
+
+
+class UnsupportedOperationError(MediaExecutionError):
+    """The plan contains operations that have no real local executor."""
+
+    def __init__(self, operations: list[str]) -> None:
+        self.operations = sorted(set(operations))
+        super().__init__("No local executor is configured for: " + ", ".join(self.operations))
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,26 +49,13 @@ class MediaProbe:
 def _require_binary(name: str) -> str:
     resolved = shutil.which(name)
     if resolved is None:
-        raise MediaExecutionError(f"{name} is not installed or is not on PATH.")
+        raise FFmpegUnavailableError(name)
     return resolved
 
 
 def _parse_frame_rate(value: object) -> float | None:
-    if value in (None, "", "0/0"):
-        return None
-    text = str(value)
-    try:
-        if "/" in text:
-            numerator, denominator = text.split("/", 1)
-            denominator_value = float(denominator)
-            if denominator_value == 0:
-                return None
-            rate = float(numerator) / denominator_value
-        else:
-            rate = float(text)
-    except (TypeError, ValueError, ZeroDivisionError):
-        return None
-    return rate if rate > 0 else None
+    rate = parse_frame_rate(value)
+    return float(rate) if rate is not None else None
 
 
 def probe_media(
@@ -93,24 +102,19 @@ def probe_media(
     )
 
 
-def build_ffmpeg_command(
-    source: str | Path,
-    destination: str | Path,
-    nodes: list[EditNode],
-    *,
-    ffmpeg_binary: str = "ffmpeg",
-) -> list[str]:
-    validate(nodes)
-    source_path = Path(source)
-    destination_path = Path(destination)
-    if source_path == destination_path:
-        raise ValueError("Source and destination must be different files.")
+def build_filter_chains(nodes: list[EditNode]) -> tuple[list[str], list[str]]:
+    """Return ``(video_filters, audio_filters)`` for a plan, in canonical order.
 
+    Nodes are always applied in :data:`multimodal_studio.planner.OPERATION_ORDER`
+    regardless of input order, so trim bounds refer to the source timeline.
+    Raises :class:`UnsupportedOperationError` if any operation has no FFmpeg mapping.
+    """
+    validate(nodes)
     video_filters: list[str] = []
     audio_filters: list[str] = []
     unsupported: list[str] = []
 
-    for node in nodes:
+    for node in canonical_order(nodes):
         if node.operation == "trim":
             start = float(node.parameters.get("start_seconds", 0.0))
             end = float(node.parameters.get("end_seconds", 0.0))
@@ -159,10 +163,24 @@ def build_ffmpeg_command(
             unsupported.append(node.operation)
 
     if unsupported:
-        raise MediaExecutionError(
-            "No local executor is configured for: " + ", ".join(sorted(unsupported))
-        )
+        raise UnsupportedOperationError(unsupported)
+    return video_filters, audio_filters
 
+
+def build_ffmpeg_command(
+    source: str | Path,
+    destination: str | Path,
+    nodes: list[EditNode],
+    *,
+    ffmpeg_binary: str = "ffmpeg",
+) -> list[str]:
+    validate(nodes)
+    source_path = Path(source)
+    destination_path = Path(destination)
+    if source_path == destination_path:
+        raise ValueError("Source and destination must be different files.")
+
+    video_filters, audio_filters = build_filter_chains(nodes)
     command = [ffmpeg_binary, "-y", "-i", str(source_path)]
     if video_filters:
         command.extend(["-vf", ",".join(video_filters)])
@@ -211,16 +229,16 @@ class FFmpegExecutor:
             raise MediaExecutionError(
                 "Source media is missing width, height, duration, or frame-rate metadata."
             )
-        enforce_render_budget(
-            nodes,
-            MediaProfile(
-                width=probe.width,
-                height=probe.height,
-                duration_seconds=probe.duration_seconds,
-                fps=probe.fps,
-            ),
-            self.render_budget,
+        media = MediaProfile(
+            width=probe.width,
+            height=probe.height,
+            duration_seconds=probe.duration_seconds,
+            fps=probe.fps,
         )
+        enforce_render_budget(nodes, media, self.render_budget)
+        # Reject plans that cannot apply to this source (trim past the end, crop
+        # outside the frame) or whose projected output exceeds the budget.
+        enforce_output_budget(nodes, media, self.render_budget)
         return probe
 
     def execute(

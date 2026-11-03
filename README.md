@@ -25,7 +25,7 @@ Media automation and AI inference toolkit combining validated prompt-to-edit pla
 
 **Executable local core:** The FFmpeg adapter now supports typed trim, crop, resize, volume, retime, cinematic grade and audio-denoise nodes with validated bounds and no shell invocation. AI-only operations such as automatic subtitles and background segmentation still fail explicitly unless a real adapter is configured.
 
-**Highest-value next work:** Measured hardware profiles, typed operation parameters, real compositor/transcription adapters and render job cancellation.
+**Highest-value next work:** Measured hardware profiles, real compositor/transcription adapters and render job cancellation.
 
 **Provenance:** Independent MAK’MA Studio engineering implementation; examples are synthetic and no employer code or data is included. Existing MIT license applies.
 
@@ -33,11 +33,15 @@ Media automation and AI inference toolkit combining validated prompt-to-edit pla
 ## Implemented now
 
 - Prompt planning for retiming, color grading, audio denoising, subtitles and background segmentation, plus typed parsing for explicit trim ranges, resize/crop dimensions, volume gain and playback speed.
+- Typed edit graph: every operation has a fixed stage and canonical position, and parameters are checked against a per-operation schema (unknown keys, missing required keys, non-integer pixel values, booleans, NaN/inf and out-of-range values are rejected with `PlanValidationError`). `trim` always runs before `retime` and `crop` before `resize`, so trim bounds and crop offsets refer to the source.
+- Exact frame/duration arithmetic (`timeline.py`): rational frame rates such as `30000/1001`, explicit `nearest`/`floor`/`ceil` frame counting, and projection of a plan onto source metadata (output resolution, duration and frame count). Plans that cannot apply to the source, such as a trim starting after the end or a crop window outside the frame, are rejected with `MediaPlanError` before rendering.
+- Output budget checks for projected duration and resolution, in addition to the existing workload budget.
+- Artifact verification: SHA-256 of the output plus `ffprobe` checks of dimensions, duration and streams when `ffprobe` is installed; otherwise the result reports `probe_status="unavailable"` rather than success.
 - Ordered operation stages and duplicate-operation validation.
 - Independent mutable parameters for each plan and JSON export.
 - Real `ffprobe` metadata inspection for local media files.
-- Shell-free FFmpeg command construction and execution for supported retime, cinematic color-grade and audio-denoise operations.
-- Explicit failure when an operation has no configured real executor instead of pretending a render succeeded.
+- Shell-free FFmpeg command construction and execution for supported trim, crop, resize, volume, retime, cinematic color-grade and audio-denoise operations.
+- Explicit failure (`UnsupportedOperationError`, `FFmpegUnavailableError`) when an operation has no configured real executor or the binaries are missing, instead of pretending a render succeeded.
 - Optional `WhisperTranscriber` with timestamped transcript segments and SRT rendering (`.[transcription]`).
 - Optional `DiffusersImageGenerator` for local Hugging Face diffusion pipelines (`.[generation]`).
 - Runtime capability detection reports whether optional AI backends are actually installed.
@@ -45,9 +49,23 @@ Media automation and AI inference toolkit combining validated prompt-to-edit pla
 - Optional `DiffusersImageGenerator` for local Hugging Face diffusion pipelines; models are loaded only when explicitly invoked.
 - Capability detection reports whether optional AI runtimes are actually installed.
 
+## makma.v1 operations
+
+`multimodal_studio.contracts` implements the shared MAK'MA `makma.v1` envelope (`contracts/makma.v1.schema.json`). Use `capabilities()` to list operations and `run_operation(operation, payload, run_id=None, correlation_id=None)` to run one in-process. All operations report `execution_mode: "deterministic_offline"`: planning is keyword/regex based and rendering uses the local FFmpeg binary; no model inference is involved.
+
+| Operation | Side effects | Input | `data` on success |
+| --- | --- | --- | --- |
+| `plan` | none | `prompt` or `nodes`; optional `media` (`width`, `height`, `duration_seconds`, `fps` as number or `"30000/1001"`) and `budget` | canonical `nodes`, `fingerprint` (SHA-256 of canonical JSON), `executable`, `unsupported_operations`, `ffmpeg_filters`, and with `media`: workload `estimate` and projected `output` |
+| `execute` | writes `destination_path`; requires approval | `source_path`, `destination_path`, `prompt` or `nodes`, `approved`, optional `timeout_seconds` (1-3600) and `budget` | `output_path`, `projected_output`, `artifact` verification (SHA-256, probe result); provenance carries source and output SHA-256 |
+| `verify_artifact` | none | `path`; optional `expected_sha256`, `expected_width`, `expected_height`, `expected_duration_seconds`, `duration_tolerance_seconds`, `require_video`, `require_audio` | size, SHA-256, `probe_status` (`verified`, `unavailable` or `failed`), probed media fields, per-check results, `passed` |
+
+Error codes: `UNKNOWN_OPERATION`, `INVALID_INPUT`, `PLAN_INVALID`, `PLAN_EMPTY`, `PLAN_INCOMPATIBLE_WITH_MEDIA`, `UNSUPPORTED_OPERATION`, `FFMPEG_UNAVAILABLE`, `SOURCE_NOT_FOUND`, `ARTIFACT_NOT_FOUND`, `EXECUTION_FAILED`, `EXECUTION_TIMEOUT`, `OUTPUT_VERIFICATION_FAILED`. Budget violations (`BUDGET_EXCEEDED`) and paths outside the workspace (`PATH_OUTSIDE_WORKSPACE`) return status `blocked` with a `deny` policy. `execute` without `approved: true` returns `pending_approval` and does not render.
+
+Paths for `execute` and `verify_artifact` are resolved against the workspace root given by the `MULTIMODAL_STUDIO_WORKSPACE` environment variable (default: the current working directory).
+
 ## Scope and limitations
 
-The deterministic planner is still keyword-based, so negation and complex mixed intents are not fully understood. The Python executor can inspect local media and perform a bounded subset of real FFmpeg edits. Optional transcription and image generation are available through separate installed backends, but browser uploads, timeline composition, segmentation/compositing, generative video, background jobs and cancellation are not yet implemented. Unsupported operations fail explicitly rather than being simulated. No standalone API or UI is included in this satellite repository; the public browser experience is owned by `makma-ai-os`.
+The deterministic planner is still keyword-based, so negation and complex mixed intents are not fully understood. The Python executor can inspect local media and perform a bounded subset of real FFmpeg edits. Optional transcription and image generation are available through separate installed backends, but browser uploads, timeline composition, segmentation/compositing, generative video, background jobs, a job state machine and cancellation of running renders are not yet implemented. Projected output frame counts assume the source frame rate is kept. Unsupported operations fail explicitly rather than being simulated. No standalone API or UI is included in this satellite repository; the public browser experience is owned by `makma-ai-os`.
 
 ## Installation and development
 
@@ -73,7 +91,7 @@ print(to_json(plan("cinematic slow motion, remove background noise, subtitles"))
 
 ## Configuration
 
-Configuration is supplied through Python function/constructor arguments. No credentials or environment file are needed for the offline example.
+Configuration is supplied through Python function/constructor arguments. No credentials or environment file are needed for the offline example. The only environment variable is `MULTIMODAL_STUDIO_WORKSPACE`, which bounds the file paths accepted by the `makma.v1` `execute` and `verify_artifact` operations.
 
 ## Container
 
@@ -87,14 +105,15 @@ docker run --rm multimodal-ai-studio
 | Path | Purpose |
 | --- | --- |
 | `src/multimodal_studio/` | Implementation |
-| `tests/` | Offline unit and regression tests |
+| `contracts/makma.v1.schema.json` | Shared MAK'MA envelope schema (vendored, byte-identical across repos) |
+| `tests/` | Offline unit and regression tests; `tests/test_real_ffmpeg_contract.py` runs only where `ffmpeg`/`ffprobe` are installed |
 | `docs/DESIGN.md` | Architecture and trust boundaries |
 | `.github/workflows/ci.yml` | Install, lint, tests, wheel and container build |
 | `pyproject.toml` | Dependencies and package configuration |
 
 ## Next engineering work
 
-Typed parameter validation across every operation; asynchronous render jobs and cancellation; transcription/subtitle adapters; segmentation/compositor adapters; ComfyUI/local-model integration; timeline UI. These are planned work, not current capabilities.
+Asynchronous render jobs with an explicit state machine and cancellation; transcription/subtitle adapters; segmentation/compositor adapters; ComfyUI/local-model integration; timeline UI. These are planned work, not current capabilities.
 
 ## Contributing and security
 
