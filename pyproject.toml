@@ -12,7 +12,7 @@ version = "0.1.0"
 requires-python = ">=3.12"
 
 [project.optional-dependencies]
-dev = ["pytest>=9.1.1,<10","ruff>=0.16.7,<1"]
+dev = ["jsonschema>=4.23,<5","pytest>=9.1.1,<10","ruff>=0.16.7,<1"]
 transcription = ["faster-whisper>=1.2.1,<2"]
 generation = [
   "accelerate>=1,<2",
